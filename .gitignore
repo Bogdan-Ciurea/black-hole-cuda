@@ -1,0 +1,45 @@
+# Build outputs
+build/
+out/
+cmake-build-*/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln.docstates
+CMakeUserPresets.json
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Compiled files
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.a
+*.so
+*.pdb
+*.ilk
+*.exp
+
+# CUDA
+*.cubin
+*.ptx
+*.fatbin
+*.gpu
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
+*~
+
+# OS
+Thumbs.db
+.DS_Store
