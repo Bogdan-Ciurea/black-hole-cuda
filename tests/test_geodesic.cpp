@@ -10,13 +10,14 @@ using namespace bht::math;
 
 TEST(Geodesic, ZeroVelocity_OnlyGravity) {
   // A photon at rest radially (dr=0, dphi=0) should have no angular acceleration
-  // and only gravitational radial acceleration
+  // and only gravitational radial acceleration (negative = inward)
   double Rs = 2953.0; // ~solar mass
   double r = 10000.0;
   auto acc = computeGeodesicAcceleration(r, 0.0, 0.0, Rs);
 
-  double expected_d2r = (C_SQUARED * Rs) / (2.0 * r * r);
+  double expected_d2r = -(C_SQUARED * Rs) / (2.0 * r * r);
   EXPECT_NEAR(acc.d2r, expected_d2r, 1e-3);
+  EXPECT_LT(acc.d2r, 0.0); // gravity pulls inward
   EXPECT_NEAR(acc.d2phi, 0.0, 1e-15);
 }
 
@@ -57,10 +58,11 @@ TEST(Geodesic, PhotonSphere_CircularOrbit) {
 
   auto acc = computeGeodesicAcceleration(r, 0.0, dphi, Rs);
 
-  // Net radial acceleration: both terms should be equal at photon sphere
-  double gravity = (C_SQUARED * Rs) / (2.0 * r * r);
+  // Net radial acceleration: gravity (inward) + centrifugal (outward)
+  // At photon sphere these balance: net d2r = 0
+  double gravity = -(C_SQUARED * Rs) / (2.0 * r * r);
   double centrifugal = r * dphi * dphi;
   EXPECT_NEAR(acc.d2r, gravity + centrifugal, 1.0);
-  // gravity ≈ centrifugal (relative tolerance for large magnitudes)
-  EXPECT_NEAR(gravity / centrifugal, 1.0, 1e-10);
+  // They should cancel (ratio of magnitudes ≈ 1)
+  EXPECT_NEAR(std::abs(gravity), centrifugal, centrifugal * 1e-10);
 }
