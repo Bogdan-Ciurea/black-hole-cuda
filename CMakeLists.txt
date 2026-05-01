@@ -27,3 +27,7 @@ add_subdirectory(src)
 
 # Application executables (one per .cpp file in app/)
 add_subdirectory(app)
+
+# Tests
+enable_testing()
+add_subdirectory(tests)
