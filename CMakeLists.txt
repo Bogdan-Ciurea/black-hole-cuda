@@ -22,32 +22,8 @@ include(cmake/Dependencies.cmake)
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 
-# Engine static library (all src/ code)
-add_library(BlackHoleEngine STATIC
-  src/core/window.cpp
-  src/gpu/kernel.cu
-)
-
-target_include_directories(BlackHoleEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-target_link_libraries(BlackHoleEngine
-  PUBLIC
-    OpenGL::GL
-    glfw
-    glad_gl
-    glm::glm
-)
-
-target_compile_definitions(BlackHoleEngine
-  PUBLIC
-    GLM_FORCE_CUDA
-    GLM_ENABLE_EXPERIMENTAL
-)
-
-set_target_properties(BlackHoleEngine PROPERTIES
-  CUDA_SEPARABLE_COMPILATION ON
-  CUDA_RESOLVE_DEVICE_SYMBOLS ON
-)
+# Engine static library (auto-collects sources)
+add_subdirectory(src)
 
 # Application executables (one per .cpp file in app/)
 add_subdirectory(app)
