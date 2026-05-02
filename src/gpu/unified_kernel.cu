@@ -243,6 +243,9 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
     0  // transparent background — lets OpenGL grid show through
   };
 
+  // Track closest approach to any BH's photon sphere (1.5 * Rs)
+  float photonRingProximity = 1e10f; // min (r - 1.5*Rs) / Rs across all BHs
+
   for (int step = 0; step < params.maxSteps; step++) {
     float3 prevPos = pos;
 
@@ -301,6 +304,18 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
     float sixth = dt / 6.0f;
     pos = pos + sixth * (k1x + 2.0f * k2x + 2.0f * k3x + k4x);
     vel = vel + sixth * (k1v + 2.0f * k2v + 2.0f * k3v + k4v);
+
+    // Track closest approach to any BH's photon sphere
+    for (int i = 0; i < c_objectCount; i++) {
+      if (c_objects[i].type == OBJ_BLACK_HOLE) {
+        float3 rel = pos - c_objects[i].position;
+        float r = sqrtf(dot3(rel, rel));
+        float Rs = c_objects[i].schwarzschildRadius;
+        float proximity = (r - 1.5f * Rs) / Rs; // normalized distance from photon sphere
+        if (proximity < photonRingProximity)
+          photonRingProximity = proximity;
+      }
+    }
 
     // Check all objects for hits using segment intersection (prevPos → pos)
     float bestT = 2.0f; // > 1.0 means no hit
@@ -361,6 +376,19 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
       float bendAngle = acosf(cosAngle);
 
       float3 lc = lensingColor(bgColor, finalDir, bendAngle);
+
+      // Photon ring: bright glow for rays that grazed the photon sphere (1.5 * Rs)
+      // proximity < 0 means ray went inside photon sphere but escaped (very bent)
+      // proximity ~0 means ray skimmed the photon sphere (brightest ring)
+      if (photonRingProximity < 1.0f) {
+        float ringGlow = expf(-photonRingProximity * photonRingProximity * 4.0f);
+        // Blue-white ring, intensity up to 0.8
+        float ringIntensity = ringGlow * 0.8f;
+        lc.x = fminf(lc.x + ringIntensity * 0.85f, 1.0f);
+        lc.y = fminf(lc.y + ringIntensity * 0.9f, 1.0f);
+        lc.z = fminf(lc.z + ringIntensity * 1.0f, 1.0f);
+      }
+
       color = {
         (unsigned char)(fminf(lc.x, 1.0f) * 255.0f),
         (unsigned char)(fminf(lc.y, 1.0f) * 255.0f),
