@@ -24,6 +24,7 @@ struct SceneInputState {
   bool prevH = false;
   bool prevB = false;
   bool prevT = false;
+  bool prevJ = false;
 };
 
 void processSceneInput(GLFWwindow* win,
@@ -66,6 +67,14 @@ void processSceneInput(GLFWwindow* win,
     std::printf("Turbulence: %s\n", params.turbulenceEnabled ? "ON" : "OFF");
   }
   state.prevT = curT;
+
+  // Toggle jets with J (edge-triggered)
+  bool curJ = glfwGetKey(win, GLFW_KEY_J) == GLFW_PRESS;
+  if (curJ && !state.prevJ) {
+    params.jetsEnabled = !params.jetsEnabled;
+    std::printf("Jets: %s\n", params.jetsEnabled ? "ON" : "OFF");
+  }
+  state.prevJ = curJ;
 }
 
 int main() {
@@ -111,6 +120,9 @@ int main() {
   bh.diskOuterColor = {0.9f, 0.15f, 0.02f}; // deep red-orange outer edge
   bh.diskEmissionStrength = 1.0f;
   bh.diskHalfThickness = 0.4f;
+  bh.hasJets = true;
+  bh.jetLength = 50.0f;
+  bh.jetHalfAngle = 8.0f;
   objects.push_back(bh);
 
   // Blue-white hot star (far behind BH — lensed)
@@ -166,7 +178,7 @@ int main() {
   glEnable(GL_DEPTH_TEST);
 
   std::printf("Controls: WASD=move, QE=up/down, Mouse=look, ESC=exit\n");
-  std::printf("          G=toggle grid, H=toggle disk, B=toggle bloom, T=toggle turbulence\n");
+  std::printf("          G=grid, H=disk, B=bloom, T=turbulence, J=jets\n");
 
   SceneInputState inputState;
 

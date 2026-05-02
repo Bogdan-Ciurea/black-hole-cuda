@@ -256,6 +256,44 @@ __device__ float starField(float3 dir) {
   return brightness;
 }
 
+// Compute jet glow contribution for a point inside a BH's jet cone.
+// Returns additive RGB glow (0 if point is outside the jet).
+__device__ float3 jetGlow(float3 pos, const DeviceSceneObject& obj) {
+  if (!obj.hasJets) return {0.0f, 0.0f, 0.0f};
+
+  float3 rel = pos - obj.position;
+  float dy = rel.y;
+  float absDy = fabsf(dy);
+  if (absDy < 0.1f || absDy > obj.jetLength) return {0.0f, 0.0f, 0.0f};
+
+  // Distance from Y axis (jet axis)
+  float axisDistSq = rel.x * rel.x + rel.z * rel.z;
+  float dist = sqrtf(axisDistSq + dy * dy);
+
+  // Cone test: cos(angle from Y axis) must exceed jetHalfAngleCos
+  float cosAngle = absDy / dist;
+  if (cosAngle < obj.jetHalfAngleCos) return {0.0f, 0.0f, 0.0f};
+
+  // Radial falloff: brighter near axis
+  float axisDist = sqrtf(axisDistSq);
+  float coneRadius = absDy * sqrtf(1.0f / (obj.jetHalfAngleCos * obj.jetHalfAngleCos) - 1.0f);
+  float radialFalloff = 1.0f - axisDist / fmaxf(coneRadius, 0.01f);
+  radialFalloff = fmaxf(radialFalloff, 0.0f);
+  radialFalloff *= radialFalloff; // squared for sharper edge
+
+  // Length falloff: fade toward tip
+  float lengthT = absDy / obj.jetLength;
+  float lengthFalloff = 1.0f - lengthT * lengthT;
+
+  // Brightness knots: sinusoidal variation along jet
+  float knots = 0.7f + 0.3f * sinf(absDy * 1.2f);
+
+  float intensity = radialFalloff * lengthFalloff * knots * 0.015f;
+
+  // Blue-white jet color
+  return {intensity * 0.5f, intensity * 0.65f, intensity * 1.0f};
+}
+
 // Sample equirectangular skybox texture using a direction vector.
 // Returns RGB [0,1]. Falls back to background color if no texture.
 __device__ float3 sampleSkybox(cudaTextureObject_t tex, float3 dir) {
@@ -336,6 +374,9 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
   // Track closest approach to any BH's photon sphere (1.5 * Rs)
   float photonRingProximity = 1e10f; // min (r - 1.5*Rs) / Rs across all BHs
 
+  // Accumulate jet glow along the ray
+  float3 jetAccum = {0.0f, 0.0f, 0.0f};
+
   for (int step = 0; step < params.maxSteps; step++) {
     float3 prevPos = pos;
 
@@ -404,6 +445,16 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
         float proximity = (r - 1.5f * Rs) / Rs; // normalized distance from photon sphere
         if (proximity < photonRingProximity)
           photonRingProximity = proximity;
+      }
+    }
+
+    // Accumulate jet glow if jets enabled
+    if (params.jetsEnabled) {
+      for (int i = 0; i < c_objectCount; i++) {
+        float3 jg = jetGlow(pos, c_objects[i]);
+        jetAccum.x += jg.x;
+        jetAccum.y += jg.y;
+        jetAccum.z += jg.z;
       }
     }
 
@@ -491,6 +542,19 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
       };
       break;
     }
+  }
+
+  // Add accumulated jet glow (additive, semi-transparent)
+  if (jetAccum.x > 0.0f || jetAccum.y > 0.0f || jetAccum.z > 0.0f) {
+    float r = (float)color.x / 255.0f + jetAccum.x;
+    float g = (float)color.y / 255.0f + jetAccum.y;
+    float b = (float)color.z / 255.0f + jetAccum.z;
+    color.x = (unsigned char)(fminf(r, 1.0f) * 255.0f);
+    color.y = (unsigned char)(fminf(g, 1.0f) * 255.0f);
+    color.z = (unsigned char)(fminf(b, 1.0f) * 255.0f);
+    // Make jet pixels visible (opaque) even over transparent background
+    if (color.w == 0 && (jetAccum.x + jetAccum.y + jetAccum.z) > 0.02f)
+      color.w = (unsigned char)(fminf((jetAccum.x + jetAccum.y + jetAccum.z) * 10.0f, 1.0f) * 255.0f);
   }
 
   framebuffer[(height - 1 - y) * width + x] = color;

@@ -4,6 +4,8 @@
 
 #include <cuda_runtime.h>
 
+#include <cmath>
+
 namespace bht::scene {
 
 // CPU-side scene object description used by both the renderer and the kernel.
@@ -26,6 +28,11 @@ struct SceneObject {
   float diskEmissionStrength = 1.0f;
   float diskHalfThickness = 0.0f;   // vertical half-extent (0 = infinitely thin)
 
+  // Relativistic jets (BH only)
+  bool hasJets = false;
+  float jetLength = 50.0f;          // half-length along Y axis
+  float jetHalfAngle = 8.0f;        // degrees
+
   // Convert to device-side object for the CUDA kernel
   bht::gpu::DeviceSceneObject toDevice() const {
     return {type, position, schwarzschildRadius, visualRadius,
@@ -33,7 +40,9 @@ struct SceneObject {
             hasAccretionDisk ? 1 : 0,
             diskInnerRadius, diskOuterRadius,
             diskInnerColor, diskOuterColor, diskEmissionStrength,
-            diskHalfThickness};
+            diskHalfThickness,
+            hasJets ? 1 : 0, jetLength,
+            cosf(jetHalfAngle * 3.14159265f / 180.0f)};
   }
 };
 

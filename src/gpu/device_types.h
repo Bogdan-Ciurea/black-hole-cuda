@@ -39,6 +39,11 @@ struct DeviceSceneObject {
   float3 diskOuterColor;     // cool outer color
   float diskEmissionStrength;
   float diskHalfThickness;       // vertical half-extent (0 = infinitely thin)
+
+  // Relativistic jets (BH only) — conical volumes along Y axis
+  int hasJets;                   // 0 = no jets, 1 = has jets
+  float jetLength;               // half-length along Y axis (one side)
+  float jetHalfAngleCos;         // cos(half-angle) of the jet cone
 };
 
 } // namespace bht::gpu
