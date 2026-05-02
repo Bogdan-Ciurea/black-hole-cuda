@@ -48,27 +48,27 @@ int main() {
   bh.drawGeodesicGrid = true;
   bh.hasAccretionDisk = true;
   bh.diskInnerRadius = 6.0f;              // 3 * Rs (ISCO)
-  bh.diskOuterRadius = 24.0f;
+  bh.diskOuterRadius = 18.0f;
   bh.diskInnerColor = {1.0f, 0.95f, 0.7f};  // hot white-yellow
   bh.diskOuterColor = {0.9f, 0.15f, 0.02f}; // deep red-orange outer edge
   bh.diskEmissionStrength = 1.0f;
   objects.push_back(bh);
 
-  // Blue-white hot star (behind and to the right of the BH)
+  // Blue-white hot star (far behind BH — lensed)
   bht::scene::SceneObject star1{};
   star1.type = OBJ_SPHERE;
-  star1.position = {25.0f, 3.0f, 40.0f};
+  star1.position = {40.0f, 8.0f, 70.0f};
   star1.schwarzschildRadius = 0.0f;
-  star1.visualRadius = 5.0f;
+  star1.visualRadius = 12.0f;
   star1.color = {0.7f, 0.85f, 1.0f};
   objects.push_back(star1);
 
-  // Warm orange giant (left side, partially lensed)
+  // Warm orange giant (far left, partially lensed)
   bht::scene::SceneObject star2{};
   star2.type = OBJ_SPHERE;
-  star2.position = {-18.0f, -2.0f, 30.0f};
+  star2.position = {-35.0f, -5.0f, 55.0f};
   star2.schwarzschildRadius = 0.0f;
-  star2.visualRadius = 4.0f;
+  star2.visualRadius = 9.0f;
   star2.color = {1.0f, 0.6f, 0.2f};
   objects.push_back(star2);
 
