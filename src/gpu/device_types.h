@@ -32,4 +32,16 @@ struct DeviceSceneObject {
   float3 emissionColor;      // for future use
 };
 
+// Device-side accretion disk (flat XZ plane)
+struct DeviceAccretionDisk {
+  float3 center;
+  float innerRadius;
+  float outerRadius;
+  float3 innerColor;   // hot inner edge
+  float3 outerColor;   // cool outer edge
+  float emissionStrength;
+};
+
+constexpr int MAX_ACCRETION_DISKS = 4;
+
 } // namespace bht::gpu

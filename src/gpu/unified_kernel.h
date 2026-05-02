@@ -19,6 +19,8 @@ struct UnifiedTraceParams {
 void launchUnifiedKernel(uchar4* framebuffer, int width, int height,
                          const DeviceCamera& camera,
                          const DeviceSceneObject* objects, int objectCount,
+                         const DeviceAccretionDisk* disks = nullptr,
+                         int diskCount = 0,
                          const UnifiedTraceParams& params = {});
 
 } // namespace bht::gpu

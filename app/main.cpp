@@ -3,6 +3,7 @@
 #include "gpu/unified_kernel.h"
 #include "math/mat4.h"
 #include "render/scene_renderer.h"
+#include "scene/accretion_disk.h"
 #include "scene/fps_camera.h"
 #include "scene/scene_object.h"
 
@@ -70,6 +71,15 @@ int main() {
   std::vector<bht::gpu::DeviceSceneObject> devObjects;
   for (auto& obj : objects) devObjects.push_back(obj.toDevice());
 
+  // Accretion disk around the black hole (ISCO = 3*Rs = 6.0)
+  bht::gpu::DeviceAccretionDisk disk{};
+  disk.center = {0.0f, 0.0f, 0.0f};
+  disk.innerRadius = 6.0f;   // 3 * Rs (innermost stable circular orbit)
+  disk.outerRadius = 20.0f;
+  disk.innerColor = {1.0f, 0.9f, 0.6f};  // hot white-yellow
+  disk.outerColor = {0.8f, 0.2f, 0.05f}; // cool red-orange
+  disk.emissionStrength = 1.0f;
+
   // Trace params: bg = #31211e
   bht::gpu::UnifiedTraceParams params;
   params.maxSteps = 3000;
@@ -102,8 +112,10 @@ int main() {
 
     // CUDA ray trace (writes to PBO texture)
     uchar4* devPtr = interop.map();
-    bht::gpu::launchUnifiedKernel(devPtr, WIDTH, HEIGHT, devCam, devObjects.data(),
-                                  static_cast<int>(devObjects.size()), params);
+    bht::gpu::launchUnifiedKernel(devPtr, WIDTH, HEIGHT, devCam,
+                                  devObjects.data(),
+                                  static_cast<int>(devObjects.size()),
+                                  &disk, 1, params);
     interop.unmap();
 
     // Draw background + OpenGL grid first
