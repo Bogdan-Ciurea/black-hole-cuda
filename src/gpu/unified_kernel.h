@@ -12,6 +12,7 @@ struct UnifiedTraceParams {
   float dt = 0.4f;             // integration step (world units)
   float escapeRadius = 160.0f; // ray considered escaped beyond this distance
   float3 backgroundColor;      // RGB [0,1]
+  float time = 0.0f;           // simulation time (for disk rotation, etc.)
 };
 
 // Launch the unified ray tracing kernel.

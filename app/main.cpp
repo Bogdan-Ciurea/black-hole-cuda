@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
+#include <cmath>
 #include <cstdio>
 #include <vector>
 
@@ -110,7 +111,7 @@ int main() {
   params.maxSteps = 3000;
   params.dt = 0.4f;
   params.escapeRadius = 160.0f;
-  params.backgroundColor = {0.02f, 0.02f, 0.03f};
+  params.backgroundColor = {0.192f, 0.129f, 0.118f}; // #31211e
 
   // Scene renderer (OpenGL spheres + grids)
   bht::render::SceneRenderer renderer;
@@ -137,6 +138,7 @@ int main() {
     processSceneInput(window.handle(), objects, devObjects, inputState);
 
     auto devCam = cam.toDeviceCamera();
+    params.time = static_cast<float>(std::fmod(glfwGetTime(), 1000.0));
 
     // CUDA ray trace (writes to PBO texture)
     uchar4* devPtr = interop.map();

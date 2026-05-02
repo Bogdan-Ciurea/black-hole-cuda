@@ -79,18 +79,34 @@ __device__ bool segmentDiskIntersect(float3 p0, float3 p1,
   return false;
 }
 
-// Compute disk color with radial gradient (inner=hot, outer=cool)
-__device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj) {
+// Compute disk color with radial gradient + Keplerian rotation pattern.
+// time: simulation time for animation.
+__device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
+                            float time) {
   float dx = hitPos.x - obj.position.x;
   float dz = hitPos.z - obj.position.z;
   float r = sqrtf(dx * dx + dz * dz);
   float t = (r - obj.diskInnerRadius) / (obj.diskOuterRadius - obj.diskInnerRadius);
   t = fminf(fmaxf(t, 0.0f), 1.0f);
-  return {
+
+  // Base radial gradient (inner=hot, outer=cool)
+  float3 baseColor = {
     obj.diskInnerColor.x * (1.0f - t) + obj.diskOuterColor.x * t,
     obj.diskInnerColor.y * (1.0f - t) + obj.diskOuterColor.y * t,
     obj.diskInnerColor.z * (1.0f - t) + obj.diskOuterColor.z * t
   };
+
+  // Keplerian differential rotation: omega = sqrt(M / r³), M = Rs/2
+  float M = obj.schwarzschildRadius * 0.5f;
+  float omega = sqrtf(M / (r * r * r));
+  float theta = atan2f(dz, dx);
+  float rotatedTheta = theta + time * omega;
+
+  // 2 spiral arms with radial phase offset for natural look
+  float spiralPhase = 2.0f * rotatedTheta - 3.0f * t;
+  float brightness = 0.75f + 0.25f * sinf(spiralPhase);
+
+  return {baseColor.x * brightness, baseColor.y * brightness, baseColor.z * brightness};
 }
 
 // Procedural starfield: hash-based pseudo-random stars on the sky sphere.
@@ -271,7 +287,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
                                c_objects[i].diskInnerRadius,
                                c_objects[i].diskOuterRadius, tHit)) {
         float3 hitPt = prevPos + tHit * (pos - prevPos);
-        float3 dc = diskColor(hitPt, c_objects[i]);
+        float3 dc = diskColor(hitPt, c_objects[i], params.time);
         color = {
           (unsigned char)(dc.x * 255.0f),
           (unsigned char)(dc.y * 255.0f),
