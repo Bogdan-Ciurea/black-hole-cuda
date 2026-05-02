@@ -108,7 +108,10 @@ __device__ bool segmentDiskIntersect(float3 p0, float3 p1,
   float hitZ = p0.z + t * (p1.z - p0.z) - center.z;
   float r2 = hitX * hitX + hitZ * hitZ;
 
-  if (r2 < innerR * innerR || r2 > outerR * outerR) return false;
+  // Soft edges: expand hit range beyond nominal radii
+  float softInnerR = innerR * 0.85f;
+  float softOuterR = outerR * 1.4f;
+  if (r2 < softInnerR * softInnerR || r2 > softOuterR * softOuterR) return false;
 
   if (halfThickness > 0.0f && turbulenceOn) {
     // Thickness scales with radius: thin at inner edge, thick at outer
@@ -130,13 +133,42 @@ __device__ bool segmentDiskIntersect(float3 p0, float3 p1,
 }
 
 // Compute disk color with radial gradient, Keplerian rotation, Doppler beaming,
-// and optional turbulence texture.
-__device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
+// optional turbulence texture, and soft edge density falloff.
+// Returns float4: RGB (HDR) + alpha (density for soft edges).
+__device__ float4 diskColor(float3 hitPos, const DeviceSceneObject& obj,
                             float time, float3 camPos, int turbulenceOn) {
   float dx = hitPos.x - obj.position.x;
   float dz = hitPos.z - obj.position.z;
   float r = sqrtf(dx * dx + dz * dz);
-  float t = (r - obj.diskInnerRadius) / (obj.diskOuterRadius - obj.diskInnerRadius);
+  float innerR = obj.diskInnerRadius;
+  float outerR = obj.diskOuterRadius;
+
+  // --- Density / opacity for soft edges ---
+  float density = 1.0f;
+  // Inner fade: smoothstep from 0.85*inner to inner
+  float softInner = innerR * 0.85f;
+  if (r < innerR) {
+    float edge = (r - softInner) / (innerR - softInner);
+    edge = fminf(fmaxf(edge, 0.0f), 1.0f);
+    density = edge * edge * (3.0f - 2.0f * edge); // smoothstep
+  }
+  // Outer fade: noise-modulated boundary
+  if (r > outerR * 0.8f) {
+    // Each position gets a slightly different effective outer radius
+    float noise = turbulenceOn
+      ? diskNoise(dx * 0.3f, dz * 0.3f, time * 0.5f) * 0.5f + 0.5f
+      : 0.5f;
+    float effectiveOuter = outerR + noise * outerR * 0.35f;
+    float fadeStart = outerR * 0.8f;
+    if (r > fadeStart) {
+      float edge = 1.0f - (r - fadeStart) / (effectiveOuter - fadeStart);
+      edge = fminf(fmaxf(edge, 0.0f), 1.0f);
+      density = fminf(density, edge * edge * (3.0f - 2.0f * edge));
+    }
+  }
+
+  // Radial gradient uses the original radii for color mapping
+  float t = (r - innerR) / (outerR - innerR);
   t = fminf(fmaxf(t, 0.0f), 1.0f);
 
   // Base radial gradient (inner=hot, outer=cool)
@@ -209,10 +241,12 @@ __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
   float gB = 0.1f + 0.9f * gFactor; // blue most affected
 
   // Apply brightness, beaming, and gravitational redshift (HDR — no clamping)
+  // Density modulates both color intensity and alpha for soft edges
   return {
-    tintedColor.x * spiralBright * beaming * gR,
-    tintedColor.y * spiralBright * beaming * gG,
-    tintedColor.z * spiralBright * beaming * gB
+    tintedColor.x * spiralBright * beaming * gR * density,
+    tintedColor.y * spiralBright * beaming * gG * density,
+    tintedColor.z * spiralBright * beaming * gB * density,
+    density
   };
 }
 
@@ -464,7 +498,7 @@ __global__ void unifiedTraceKernel(float4* hdrBuffer, int width, int height,
     }
 
     // Check accretion disk intersections (disks are properties of BH objects)
-    bool diskHit = false;
+    bool diskOpaque = false;
     for (int i = 0; i < c_objectCount; i++) {
       if (!c_objects[i].hasAccretionDisk) continue;
       float tHit;
@@ -475,14 +509,24 @@ __global__ void unifiedTraceKernel(float4* hdrBuffer, int width, int height,
                                params.time, params.turbulenceEnabled,
                                tHit)) {
         float3 hitPt = prevPos + tHit * (pos - prevPos);
-        float3 dc = diskColor(hitPt, c_objects[i], params.time, camera.position,
+        float4 dc = diskColor(hitPt, c_objects[i], params.time, camera.position,
                               params.turbulenceEnabled);
-        hdrColor = {dc.x, dc.y, dc.z, 1.0f};
-        diskHit = true;
+        // Soft edges: blend disk color over existing background using density alpha
+        float a = dc.w;
+        if (a > 0.001f) {
+          hdrColor = {
+            hdrColor.x * (1.0f - a) + dc.x,
+            hdrColor.y * (1.0f - a) + dc.y,
+            hdrColor.z * (1.0f - a) + dc.z,
+            fminf(hdrColor.w + a, 1.0f)
+          };
+          // Only stop ray if disk is fully opaque at this point
+          if (a > 0.9f) diskOpaque = true;
+        }
         break;
       }
     }
-    if (diskHit) break;
+    if (diskOpaque) break;
 
     // Escape check: distance from origin — apply lensing shading
     if (dot3(pos, pos) > escapeR2) {
