@@ -39,32 +39,32 @@ int main() {
   // Scene objects
   std::vector<bht::scene::SceneObject> objects;
 
-  // Black hole (red, at origin, Rs = 2.0)
+  // Black hole (black — light doesn't escape)
   bht::scene::SceneObject bh{};
   bh.type = OBJ_BLACK_HOLE;
   bh.position = {0.0f, 0.0f, 0.0f};
   bh.schwarzschildRadius = 2.0f;
   bh.visualRadius = 2.0f;
-  bh.color = {0.8f, 0.0f, 0.0f};
+  bh.color = {0.0f, 0.0f, 0.0f};
   bh.drawGeodesicGrid = true;
   objects.push_back(bh);
 
-  // Star 1 (green, offset)
+  // Blue-white hot star (behind and to the right of the BH)
   bht::scene::SceneObject star1{};
   star1.type = OBJ_SPHERE;
-  star1.position = {15.0f, 5.0f, 10.0f};
+  star1.position = {25.0f, 3.0f, 40.0f};
   star1.schwarzschildRadius = 0.0f;
-  star1.visualRadius = 3.0f;
-  star1.color = {0.0f, 0.8f, 0.0f};
+  star1.visualRadius = 5.0f;
+  star1.color = {0.7f, 0.85f, 1.0f};
   objects.push_back(star1);
 
-  // Star 2 (green, other side)
+  // Warm orange giant (left side, partially lensed)
   bht::scene::SceneObject star2{};
   star2.type = OBJ_SPHERE;
-  star2.position = {-12.0f, -3.0f, 8.0f};
+  star2.position = {-18.0f, -2.0f, 30.0f};
   star2.schwarzschildRadius = 0.0f;
-  star2.visualRadius = 2.5f;
-  star2.color = {0.0f, 0.7f, 0.2f};
+  star2.visualRadius = 4.0f;
+  star2.color = {1.0f, 0.6f, 0.2f};
   objects.push_back(star2);
 
   // Build device objects for CUDA kernel
@@ -75,17 +75,17 @@ int main() {
   bht::gpu::DeviceAccretionDisk disk{};
   disk.center = {0.0f, 0.0f, 0.0f};
   disk.innerRadius = 6.0f;   // 3 * Rs (innermost stable circular orbit)
-  disk.outerRadius = 20.0f;
-  disk.innerColor = {1.0f, 0.9f, 0.6f};  // hot white-yellow
-  disk.outerColor = {0.8f, 0.2f, 0.05f}; // cool red-orange
+  disk.outerRadius = 24.0f;
+  disk.innerColor = {1.0f, 0.95f, 0.7f};  // hot white-yellow
+  disk.outerColor = {0.9f, 0.15f, 0.02f}; // deep red-orange outer edge
   disk.emissionStrength = 1.0f;
 
-  // Trace params: bg = #31211e
+  // Trace params: near-black background to make stars/disk pop
   bht::gpu::UnifiedTraceParams params;
   params.maxSteps = 3000;
   params.dt = 0.4f;
   params.escapeRadius = 160.0f;
-  params.backgroundColor = {0.192f, 0.129f, 0.118f};
+  params.backgroundColor = {0.02f, 0.02f, 0.03f};
 
   // Scene renderer (OpenGL spheres + grids)
   bht::render::SceneRenderer renderer;
@@ -94,9 +94,9 @@ int main() {
     return 1;
   }
 
-  // Camera
+  // Camera — slightly above disk plane for a cinematic angle
   bht::scene::FPSCamera cam;
-  cam.position = {0.0f, 5.0f, -25.0f};
+  cam.position = {0.0f, 8.0f, -30.0f};
   cam.speed = 1.0f;
 
   glEnable(GL_DEPTH_TEST);
