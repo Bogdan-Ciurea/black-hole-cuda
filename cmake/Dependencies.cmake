@@ -37,7 +37,15 @@ FetchContent_Declare(
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(glm glfw googletest)
+# stb — header-only image loading (stb_image.h)
+FetchContent_Declare(
+  stb
+  GIT_REPOSITORY https://github.com/nothings/stb.git
+  GIT_TAG        master
+  GIT_SHALLOW    TRUE
+)
+
+FetchContent_MakeAvailable(glm glfw googletest stb)
 
 # GLAD v2 — has no top-level CMakeLists.txt, need to add its cmake/ subdirectory
 FetchContent_GetProperties(glad)
@@ -46,3 +54,23 @@ if(NOT glad_POPULATED)
 endif()
 add_subdirectory("${glad_SOURCE_DIR}/cmake" "${glad_BINARY_DIR}")
 glad_add_library(glad_gl REPRODUCIBLE API gl:core=4.6)
+
+# Download skybox asset if not present
+set(SKYBOX_PATH "${CMAKE_SOURCE_DIR}/assets/skybox.jpg")
+if(NOT EXISTS "${SKYBOX_PATH}")
+  message(STATUS "Downloading skybox star map...")
+  file(MAKE_DIRECTORY "${CMAKE_SOURCE_DIR}/assets")
+  file(DOWNLOAD
+    "https://www.solarsystemscope.com/textures/download/8k_stars_milky_way.jpg"
+    "${SKYBOX_PATH}"
+    SHOW_PROGRESS
+    STATUS SKYBOX_DL_STATUS
+  )
+  list(GET SKYBOX_DL_STATUS 0 SKYBOX_DL_CODE)
+  if(NOT SKYBOX_DL_CODE EQUAL 0)
+    message(WARNING "Failed to download skybox image. Procedural starfield will be used.")
+    file(REMOVE "${SKYBOX_PATH}")
+  else()
+    message(STATUS "Skybox downloaded to ${SKYBOX_PATH}")
+  endif()
+endif()

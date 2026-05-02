@@ -13,6 +13,7 @@ struct UnifiedTraceParams {
   float escapeRadius = 160.0f; // ray considered escaped beyond this distance
   float3 backgroundColor;      // RGB [0,1]
   float time = 0.0f;           // simulation time (for disk rotation, etc.)
+  cudaTextureObject_t skyboxTex = 0; // equirectangular skybox (0 = use procedural)
 };
 
 // Launch the unified ray tracing kernel.

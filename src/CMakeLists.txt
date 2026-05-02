@@ -6,7 +6,13 @@ file(GLOB_RECURSE ENGINE_SOURCES
 
 add_library(BlackHoleEngine STATIC ${ENGINE_SOURCES})
 
-target_include_directories(BlackHoleEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(BlackHoleEngine PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# stb headers (image loading)
+FetchContent_GetProperties(stb)
+target_include_directories(BlackHoleEngine PRIVATE ${stb_SOURCE_DIR})
 
 target_link_libraries(BlackHoleEngine
   PUBLIC

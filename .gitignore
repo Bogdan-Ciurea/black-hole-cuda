@@ -43,3 +43,6 @@ Makefile
 # OS
 Thumbs.db
 .DS_Store
+
+# Assets (large binary files — download separately)
+assets/

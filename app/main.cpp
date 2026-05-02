@@ -1,6 +1,7 @@
 #include "core/window.h"
 #include "gpu/bloom.h"
 #include "gpu/cuda_gl_interop.h"
+#include "gpu/skybox.h"
 #include "gpu/unified_kernel.h"
 #include "math/mat4.h"
 #include "render/scene_renderer.h"
@@ -76,6 +77,12 @@ int main() {
     return 1;
   }
 
+  // Skybox (optional — falls back to procedural starfield if not found)
+  bht::gpu::Skybox skybox;
+  std::string assetsDir = std::string(BHT_PROJECT_DIR) + "/assets/";
+  if (!skybox.load(assetsDir + "skybox.png"))
+    skybox.load(assetsDir + "skybox.jpg");
+
   // Scene objects
   std::vector<bht::scene::SceneObject> objects;
 
@@ -123,6 +130,7 @@ int main() {
   params.dt = 0.4f;
   params.escapeRadius = 160.0f;
   params.backgroundColor = {0.192f, 0.129f, 0.118f}; // #31211e
+  params.skyboxTex = skybox.texture();
 
   // Scene renderer (OpenGL spheres + grids)
   bht::render::SceneRenderer renderer;
@@ -168,11 +176,20 @@ int main() {
     bloom.apply(devPtr, bloomParams);
     interop.unmap();
 
-    // Draw background + OpenGL grid first
+    // Draw background
     glClearColor(params.backgroundColor.x, params.backgroundColor.y,
                  params.backgroundColor.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // Draw ray-traced image first (skybox fills background when active)
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    interop.draw();
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+
+    // Draw OpenGL grid ON TOP of the ray-traced image
     float3 pos = cam.position;
     float3 fwd = cam.getForward();
     float3 right = cam.getRight();
@@ -182,14 +199,9 @@ int main() {
     Mat4 view = Mat4::lookAt(pos, fwd, right, up);
     Mat4 mvp = proj * view;
 
-    renderer.render(mvp.m, objects);
-
-    // Composite ray-traced image on top (alpha blend: objects opaque, bg transparent)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
-    interop.draw();
-    glDepthMask(GL_TRUE);
+    renderer.render(mvp.m, objects);
     glDisable(GL_BLEND);
 
     window.swapBuffers();

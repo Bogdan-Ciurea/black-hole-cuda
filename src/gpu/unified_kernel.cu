@@ -188,35 +188,57 @@ __device__ float starField(float3 dir) {
   return brightness;
 }
 
+// Sample equirectangular skybox texture using a direction vector.
+// Returns RGB [0,1]. Falls back to background color if no texture.
+__device__ float3 sampleSkybox(cudaTextureObject_t tex, float3 dir) {
+  // Direction → equirectangular UV
+  float theta = atan2f(dir.z, dir.x); // [-pi, pi]
+  float phi = asinf(fminf(fmaxf(dir.y, -1.0f), 1.0f)); // [-pi/2, pi/2]
+
+  float u = theta / (2.0f * 3.14159265f) + 0.5f; // [0, 1]
+  float v = phi / 3.14159265f + 0.5f;             // [0, 1]
+
+  float4 texel = tex2D<float4>(tex, u, v);
+  return {texel.x, texel.y, texel.z};
+}
+
 // Compute lensing-based color for escaped rays.
 // bendAngle: angle between initial and final ray direction (radians).
-// finalDir: ray's final direction (used for starfield lookup).
+// finalDir: ray's final direction (used for starfield/skybox lookup).
 __device__ float3 lensingColor(float3 bgColor, float3 finalDir,
-                               float bendAngle) {
-  // Star field
-  float star = starField(finalDir);
-
+                               float bendAngle,
+                               cudaTextureObject_t skyboxTex) {
   // Lensing amplification: rays bent more → brighter (gravitational focusing)
-  // Smooth ramp: subtle glow near the photon sphere silhouette
   float amplification = 1.0f + 2.0f * bendAngle * bendAngle;
   amplification = fminf(amplification, 4.0f);
 
-  // Base color: background with lensing tint
-  float3 col = bgColor;
+  float3 col;
+
+  if (skyboxTex != 0) {
+    // Sample skybox texture
+    col = sampleSkybox(skyboxTex, finalDir);
+    // Apply lensing amplification
+    col.x *= amplification;
+    col.y *= amplification;
+    col.z *= amplification;
+  } else {
+    // Procedural fallback: background + starfield
+    col = bgColor;
+
+    float star = starField(finalDir);
+    if (star > 0.0f) {
+      float s = star * amplification;
+      col.x = fminf(col.x + s, 1.0f);
+      col.y = fminf(col.y + s, 1.0f);
+      col.z = fminf(col.z + s * 0.9f, 1.0f);
+    }
+  }
 
   // Add lensing glow (bluish-white shift for strongly bent rays)
   float lensGlow = fminf(bendAngle * 0.8f, 0.5f);
   col.x += lensGlow * 0.3f;
   col.y += lensGlow * 0.4f;
   col.z += lensGlow * 0.6f;
-
-  // Add stars (white, amplified by lensing)
-  if (star > 0.0f) {
-    float s = star * amplification;
-    col.x = fminf(col.x + s, 1.0f);
-    col.y = fminf(col.y + s, 1.0f);
-    col.z = fminf(col.z + s * 0.9f, 1.0f);
-  }
 
   return col;
 }
@@ -375,7 +397,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
       cosAngle = fminf(fmaxf(cosAngle, -1.0f), 1.0f);
       float bendAngle = acosf(cosAngle);
 
-      float3 lc = lensingColor(bgColor, finalDir, bendAngle);
+      float3 lc = lensingColor(bgColor, finalDir, bendAngle, params.skyboxTex);
 
       // Photon ring: bright glow for rays that grazed the photon sphere (1.5 * Rs)
       // proximity < 0 means ray went inside photon sphere but escaped (very bent)
@@ -393,7 +415,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
         (unsigned char)(fminf(lc.x, 1.0f) * 255.0f),
         (unsigned char)(fminf(lc.y, 1.0f) * 255.0f),
         (unsigned char)(fminf(lc.z, 1.0f) * 255.0f),
-        0  // transparent — lets OpenGL grid show through
+        (unsigned char)(params.skyboxTex != 0 ? 255 : 0)  // opaque if skybox, else transparent for grid
       };
       break;
     }
