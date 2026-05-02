@@ -74,7 +74,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
     (unsigned char)(bgColor.x * 255.0f),
     (unsigned char)(bgColor.y * 255.0f),
     (unsigned char)(bgColor.z * 255.0f),
-    255
+    0  // transparent background — lets OpenGL grid show through
   };
 
   for (int step = 0; step < params.maxSteps; step++) {
@@ -169,7 +169,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
     if (dot3(pos, pos) > escapeR2) break;
   }
 
-  framebuffer[y * width + x] = color;
+  framebuffer[(height - 1 - y) * width + x] = color;
 }
 
 void launchUnifiedKernel(uchar4* framebuffer, int width, int height,

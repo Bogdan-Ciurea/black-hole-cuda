@@ -51,7 +51,7 @@ struct FPSCamera {
     glfwGetCursorPos(w, &mx, &my);
     double centerX = width / 2.0, centerY = height / 2.0;
     yaw += (mx - centerX) * sensitivity;
-    pitch += (my - centerY) * sensitivity; // inverted: mouse up = look down
+    pitch -= (my - centerY) * sensitivity; // mouse up = look up (BH goes down)
     if (pitch > 89.0) pitch = 89.0;
     if (pitch < -89.0) pitch = -89.0;
     glfwSetCursorPos(w, centerX, centerY);

@@ -239,7 +239,6 @@ void SceneRenderer::render(
     const float* mvp,
     const std::vector<bht::scene::SceneObject>& objects) const {
   for (auto& obj : objects) {
-    renderSphere(mvp, obj);
     if (obj.type == bht::gpu::OBJ_BLACK_HOLE && obj.drawGeodesicGrid)
       const_cast<SceneRenderer*>(this)->renderGrid(mvp, obj);
   }
