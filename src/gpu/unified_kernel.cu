@@ -150,7 +150,7 @@ __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
   float M = obj.schwarzschildRadius * 0.5f;
   float omega = sqrtf(M / (r * r * r));
   float theta = atan2f(dz, dx);
-  float rotatedTheta = theta + time * omega;
+  float rotatedTheta = theta + time * omega * 10.0f;
 
   // Spiral arm brightness modulation
   float spiralPhase = 2.0f * rotatedTheta - 3.0f * t;
@@ -199,11 +199,20 @@ __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
   // Brightness: D² (not D³ — avoids blowout in LDR pipeline)
   float beaming = D * D;
 
-  // Apply brightness after tint, then Reinhard tone map per-channel to preserve tint
+  // Gravitational redshift: light loses energy climbing out of the gravity well
+  // factor = sqrt(1 - Rs/r) → 0 at horizon, 1 at infinity
+  float Rs = obj.schwarzschildRadius;
+  float gFactor = sqrtf(fmaxf(1.0f - Rs / r, 0.01f));
+  // Differential per-channel: blue/green shift more than red
+  float gR = 0.6f + 0.4f * gFactor; // red least affected
+  float gG = 0.3f + 0.7f * gFactor; // green moderately affected
+  float gB = 0.1f + 0.9f * gFactor; // blue most affected
+
+  // Apply brightness, beaming, and gravitational redshift
   float3 hdr = {
-    tintedColor.x * spiralBright * beaming,
-    tintedColor.y * spiralBright * beaming,
-    tintedColor.z * spiralBright * beaming
+    tintedColor.x * spiralBright * beaming * gR,
+    tintedColor.y * spiralBright * beaming * gG,
+    tintedColor.z * spiralBright * beaming * gB
   };
 
   // Simple Reinhard: color / (1 + color) — preserves channel ratios
