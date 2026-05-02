@@ -1,4 +1,5 @@
 #include "core/window.h"
+#include "gpu/bloom.h"
 #include "gpu/cuda_gl_interop.h"
 #include "gpu/unified_kernel.h"
 #include "math/mat4.h"
@@ -20,11 +21,13 @@ using bht::math::Mat4;
 struct SceneInputState {
   bool prevG = false;
   bool prevH = false;
+  bool prevB = false;
 };
 
 void processSceneInput(GLFWwindow* win,
                        std::vector<bht::scene::SceneObject>& objects,
                        std::vector<bht::gpu::DeviceSceneObject>& devObjects,
+                       bht::gpu::BloomParams& bloomParams,
                        SceneInputState& state) {
   // Toggle geodesic grid with G (edge-triggered)
   bool curG = glfwGetKey(win, GLFW_KEY_G) == GLFW_PRESS;
@@ -44,6 +47,14 @@ void processSceneInput(GLFWwindow* win,
                 objects[0].hasAccretionDisk ? "ON" : "OFF");
   }
   state.prevH = curH;
+
+  // Toggle bloom with B (edge-triggered)
+  bool curB = glfwGetKey(win, GLFW_KEY_B) == GLFW_PRESS;
+  if (curB && !state.prevB) {
+    bloomParams.enabled = !bloomParams.enabled;
+    std::printf("Bloom: %s\n", bloomParams.enabled ? "ON" : "OFF");
+  }
+  state.prevB = curB;
 }
 
 int main() {
@@ -120,6 +131,14 @@ int main() {
     return 1;
   }
 
+  // Bloom post-process
+  bht::gpu::BloomPostProcess bloom;
+  if (!bloom.init(WIDTH, HEIGHT)) {
+    std::fprintf(stderr, "Failed to init bloom\n");
+    return 1;
+  }
+  bht::gpu::BloomParams bloomParams;
+
   // Camera — slightly above disk plane for a cinematic angle
   bht::scene::FPSCamera cam;
   cam.position = {0.0f, 8.0f, -30.0f};
@@ -128,14 +147,14 @@ int main() {
   glEnable(GL_DEPTH_TEST);
 
   std::printf("Controls: WASD=move, QE=up/down, Mouse=look, ESC=exit\n");
-  std::printf("          G=toggle grid, H=toggle accretion disk\n");
+  std::printf("          G=toggle grid, H=toggle disk, B=toggle bloom\n");
 
   SceneInputState inputState;
 
   while (!window.shouldClose()) {
     window.pollEvents();
     cam.processInput(window.handle(), WIDTH, HEIGHT);
-    processSceneInput(window.handle(), objects, devObjects, inputState);
+    processSceneInput(window.handle(), objects, devObjects, bloomParams, inputState);
 
     auto devCam = cam.toDeviceCamera();
     params.time = static_cast<float>(std::fmod(glfwGetTime(), 1000.0));
@@ -146,6 +165,7 @@ int main() {
                                   devObjects.data(),
                                   static_cast<int>(devObjects.size()),
                                   params);
+    bloom.apply(devPtr, bloomParams);
     interop.unmap();
 
     // Draw background + OpenGL grid first
