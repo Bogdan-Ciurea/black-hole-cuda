@@ -16,6 +16,35 @@ using bht::gpu::OBJ_BLACK_HOLE;
 using bht::gpu::OBJ_SPHERE;
 using bht::math::Mat4;
 
+struct SceneInputState {
+  bool prevG = false;
+  bool prevH = false;
+};
+
+void processSceneInput(GLFWwindow* win,
+                       std::vector<bht::scene::SceneObject>& objects,
+                       std::vector<bht::gpu::DeviceSceneObject>& devObjects,
+                       SceneInputState& state) {
+  // Toggle geodesic grid with G (edge-triggered)
+  bool curG = glfwGetKey(win, GLFW_KEY_G) == GLFW_PRESS;
+  if (curG && !state.prevG) {
+    objects[0].drawGeodesicGrid = !objects[0].drawGeodesicGrid;
+    std::printf("Geodesic grid: %s\n",
+                objects[0].drawGeodesicGrid ? "ON" : "OFF");
+  }
+  state.prevG = curG;
+
+  // Toggle accretion disk with H (edge-triggered)
+  bool curH = glfwGetKey(win, GLFW_KEY_H) == GLFW_PRESS;
+  if (curH && !state.prevH) {
+    objects[0].hasAccretionDisk = !objects[0].hasAccretionDisk;
+    devObjects[0] = objects[0].toDevice();
+    std::printf("Accretion disk: %s\n",
+                objects[0].hasAccretionDisk ? "ON" : "OFF");
+  }
+  state.prevH = curH;
+}
+
 int main() {
   const int WIDTH = 1024;
   const int HEIGHT = 768;
@@ -97,12 +126,15 @@ int main() {
 
   glEnable(GL_DEPTH_TEST);
 
-  std::printf("Main Scene: BH(red) + 2 stars(green), bg #31211e\n");
   std::printf("Controls: WASD=move, QE=up/down, Mouse=look, ESC=exit\n");
+  std::printf("          G=toggle grid, H=toggle accretion disk\n");
+
+  SceneInputState inputState;
 
   while (!window.shouldClose()) {
     window.pollEvents();
     cam.processInput(window.handle(), WIDTH, HEIGHT);
+    processSceneInput(window.handle(), objects, devObjects, inputState);
 
     auto devCam = cam.toDeviceCamera();
 
