@@ -24,6 +24,7 @@ struct SceneObject {
   float3 diskInnerColor = {1.0f, 1.0f, 1.0f};
   float3 diskOuterColor = {1.0f, 0.0f, 0.0f};
   float diskEmissionStrength = 1.0f;
+  float diskHalfThickness = 0.0f;   // vertical half-extent (0 = infinitely thin)
 
   // Convert to device-side object for the CUDA kernel
   bht::gpu::DeviceSceneObject toDevice() const {
@@ -31,7 +32,8 @@ struct SceneObject {
             color, emissionStrength, emissionColor,
             hasAccretionDisk ? 1 : 0,
             diskInnerRadius, diskOuterRadius,
-            diskInnerColor, diskOuterColor, diskEmissionStrength};
+            diskInnerColor, diskOuterColor, diskEmissionStrength,
+            diskHalfThickness};
   }
 };
 

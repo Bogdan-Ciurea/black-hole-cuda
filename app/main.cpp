@@ -23,12 +23,14 @@ struct SceneInputState {
   bool prevG = false;
   bool prevH = false;
   bool prevB = false;
+  bool prevT = false;
 };
 
 void processSceneInput(GLFWwindow* win,
                        std::vector<bht::scene::SceneObject>& objects,
                        std::vector<bht::gpu::DeviceSceneObject>& devObjects,
                        bht::gpu::BloomParams& bloomParams,
+                       bht::gpu::UnifiedTraceParams& params,
                        SceneInputState& state) {
   // Toggle geodesic grid with G (edge-triggered)
   bool curG = glfwGetKey(win, GLFW_KEY_G) == GLFW_PRESS;
@@ -56,6 +58,14 @@ void processSceneInput(GLFWwindow* win,
     std::printf("Bloom: %s\n", bloomParams.enabled ? "ON" : "OFF");
   }
   state.prevB = curB;
+
+  // Toggle turbulence with T (edge-triggered)
+  bool curT = glfwGetKey(win, GLFW_KEY_T) == GLFW_PRESS;
+  if (curT && !state.prevT) {
+    params.turbulenceEnabled = !params.turbulenceEnabled;
+    std::printf("Turbulence: %s\n", params.turbulenceEnabled ? "ON" : "OFF");
+  }
+  state.prevT = curT;
 }
 
 int main() {
@@ -100,6 +110,7 @@ int main() {
   bh.diskInnerColor = {1.0f, 0.95f, 0.7f};  // hot white-yellow
   bh.diskOuterColor = {0.9f, 0.15f, 0.02f}; // deep red-orange outer edge
   bh.diskEmissionStrength = 1.0f;
+  bh.diskHalfThickness = 0.4f;
   objects.push_back(bh);
 
   // Blue-white hot star (far behind BH — lensed)
@@ -155,14 +166,14 @@ int main() {
   glEnable(GL_DEPTH_TEST);
 
   std::printf("Controls: WASD=move, QE=up/down, Mouse=look, ESC=exit\n");
-  std::printf("          G=toggle grid, H=toggle disk, B=toggle bloom\n");
+  std::printf("          G=toggle grid, H=toggle disk, B=toggle bloom, T=toggle turbulence\n");
 
   SceneInputState inputState;
 
   while (!window.shouldClose()) {
     window.pollEvents();
     cam.processInput(window.handle(), WIDTH, HEIGHT);
-    processSceneInput(window.handle(), objects, devObjects, bloomParams, inputState);
+    processSceneInput(window.handle(), objects, devObjects, bloomParams, params, inputState);
 
     auto devCam = cam.toDeviceCamera();
     params.time = static_cast<float>(std::fmod(glfwGetTime(), 1000.0));

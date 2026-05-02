@@ -38,6 +38,7 @@ struct DeviceSceneObject {
   float3 diskInnerColor;     // hot inner color
   float3 diskOuterColor;     // cool outer color
   float diskEmissionStrength;
+  float diskHalfThickness;       // vertical half-extent (0 = infinitely thin)
 };
 
 } // namespace bht::gpu

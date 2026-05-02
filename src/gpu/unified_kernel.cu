@@ -55,34 +55,84 @@ __device__ bool segmentSphereIntersect(float3 p0, float3 p1,
   return false;
 }
 
-// Segment-disk intersection: detect crossing of the XZ plane at y = diskY.
-// Returns true if the segment crosses the plane within [innerR, outerR].
-// Sets tHit to the parametric crossing point [0,1] along the segment.
+// Hash-based 2D noise for disk turbulence (2 octaves).
+// Returns value in [-1, 1].
+__device__ float diskNoise(float x, float z, float time) {
+  // Animate: slowly shift noise pattern
+  x += time * 0.15f;
+  z += time * 0.1f;
+
+  auto hash2d = [](float px, float pz) -> float {
+    int ix = __float2int_rd(px);
+    int iz = __float2int_rd(pz);
+    unsigned int h = (unsigned int)(ix * 374761393 + iz * 668265263 + 1013904223);
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return (float)(h & 0x7fffff) / (float)0x7fffff; // [0, 1]
+  };
+
+  auto smoothNoise = [&](float px, float pz) -> float {
+    float fx = px - floorf(px);
+    float fz = pz - floorf(pz);
+    // Smoothstep interpolation
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fz = fz * fz * (3.0f - 2.0f * fz);
+    float a = hash2d(px, pz);
+    float b = hash2d(px + 1.0f, pz);
+    float c = hash2d(px, pz + 1.0f);
+    float d = hash2d(px + 1.0f, pz + 1.0f);
+    return a * (1 - fx) * (1 - fz) + b * fx * (1 - fz) +
+           c * (1 - fx) * fz + d * fx * fz;
+  };
+
+  // 2 octaves
+  float n = smoothNoise(x * 1.5f, z * 1.5f) * 0.65f;
+  n += smoothNoise(x * 3.5f, z * 3.5f) * 0.35f;
+  return n * 2.0f - 1.0f; // remap to [-1, 1]
+}
+
+// Segment-disk intersection with optional thickness slab.
+// When halfThickness > 0, tests against a band [center.y - h, center.y + h]
+// where h varies with radius (thinner at inner edge).
 __device__ bool segmentDiskIntersect(float3 p0, float3 p1,
                                      float3 center, float innerR, float outerR,
+                                     float halfThickness, float time,
+                                     int turbulenceOn,
                                      float& tHit) {
   float dy = p1.y - p0.y;
-  if (fabsf(dy) < 1e-10f) return false; // segment parallel to disk
+  if (fabsf(dy) < 1e-10f) return false;
 
   float t = (center.y - p0.y) / dy;
-  if (t < 0.0f || t > 1.0f) return false; // crossing outside segment
+  if (t < 0.0f || t > 1.0f) return false;
 
-  // Intersection point on the plane
   float hitX = p0.x + t * (p1.x - p0.x) - center.x;
   float hitZ = p0.z + t * (p1.z - p0.z) - center.z;
   float r2 = hitX * hitX + hitZ * hitZ;
 
-  if (r2 >= innerR * innerR && r2 <= outerR * outerR) {
-    tHit = t;
-    return true;
+  if (r2 < innerR * innerR || r2 > outerR * outerR) return false;
+
+  if (halfThickness > 0.0f && turbulenceOn) {
+    // Thickness scales with radius: thin at inner edge, thick at outer
+    float r = sqrtf(r2);
+    float tRadial = (r - innerR) / (outerR - innerR);
+    float localH = halfThickness * (0.3f + 0.7f * tRadial);
+
+    // Noise-based vertical displacement
+    float disp = diskNoise(hitX * 0.4f, hitZ * 0.4f, time) * localH * 0.6f;
+    float surfaceY = center.y + disp;
+
+    // Check if the ray crossing is within the displaced surface ± tolerance
+    float hitY = p0.y + t * dy;
+    if (fabsf(hitY - surfaceY) > localH) return false;
   }
-  return false;
+
+  tHit = t;
+  return true;
 }
 
-// Compute disk color with radial gradient, Keplerian rotation, and Doppler beaming.
-// camPos: camera position (observer) for Doppler shift calculation.
+// Compute disk color with radial gradient, Keplerian rotation, Doppler beaming,
+// and optional turbulence texture.
 __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
-                            float time, float3 camPos) {
+                            float time, float3 camPos, int turbulenceOn) {
   float dx = hitPos.x - obj.position.x;
   float dz = hitPos.z - obj.position.z;
   float r = sqrtf(dx * dx + dz * dz);
@@ -105,6 +155,15 @@ __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
   // Spiral arm brightness modulation
   float spiralPhase = 2.0f * rotatedTheta - 3.0f * t;
   float spiralBright = 0.75f + 0.25f * sinf(spiralPhase);
+
+  // Turbulence: noise-based brightness variation for clumps and filaments
+  if (turbulenceOn) {
+    float turb = diskNoise(dx * 0.5f, dz * 0.5f, time * 0.8f);
+    // Fine detail layer
+    float detail = diskNoise(dx * 1.2f, dz * 1.2f, time * 1.2f);
+    float turbFactor = 0.7f + 0.3f * (turb * 0.6f + detail * 0.4f + 0.5f);
+    spiralBright *= turbFactor;
+  }
 
   // Doppler beaming: orbital velocity in the XZ plane (counter-clockwise)
   float v = omega * r; // tangential speed (units of c when M = Rs/2)
@@ -375,9 +434,13 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
       float tHit;
       if (segmentDiskIntersect(prevPos, pos, c_objects[i].position,
                                c_objects[i].diskInnerRadius,
-                               c_objects[i].diskOuterRadius, tHit)) {
+                               c_objects[i].diskOuterRadius,
+                               c_objects[i].diskHalfThickness,
+                               params.time, params.turbulenceEnabled,
+                               tHit)) {
         float3 hitPt = prevPos + tHit * (pos - prevPos);
-        float3 dc = diskColor(hitPt, c_objects[i], params.time, camera.position);
+        float3 dc = diskColor(hitPt, c_objects[i], params.time, camera.position,
+                              params.turbulenceEnabled);
         color = {
           (unsigned char)(dc.x * 255.0f),
           (unsigned char)(dc.y * 255.0f),

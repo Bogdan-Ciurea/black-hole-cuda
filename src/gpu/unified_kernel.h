@@ -14,6 +14,7 @@ struct UnifiedTraceParams {
   float3 backgroundColor;      // RGB [0,1]
   float time = 0.0f;           // simulation time (for disk rotation, etc.)
   cudaTextureObject_t skyboxTex = 0; // equirectangular skybox (0 = use procedural)
+  int turbulenceEnabled = 1;   // 1 = disk thickness/turbulence active
 };
 
 // Launch the unified ray tracing kernel.
