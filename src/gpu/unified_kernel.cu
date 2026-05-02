@@ -96,6 +96,65 @@ __device__ float3 diskColor(float3 hitPos, const DeviceAccretionDisk& disk) {
   };
 }
 
+// Procedural starfield: hash-based pseudo-random stars on the sky sphere.
+// Returns a star brightness [0,1] based on the ray's final direction.
+__device__ float starField(float3 dir) {
+  // Map direction to a grid on the unit sphere
+  float theta = atan2f(dir.z, dir.x); // [-pi, pi]
+  float phi = asinf(fminf(fmaxf(dir.y, -1.0f), 1.0f)); // [-pi/2, pi/2]
+
+  // Grid cell for star placement
+  float gridScale = 80.0f;
+  float cellX = floorf(theta * gridScale);
+  float cellY = floorf(phi * gridScale);
+
+  // Hash function for pseudo-random star placement
+  unsigned int h = (unsigned int)(cellX * 7919.0f + cellY * 6271.0f);
+  h = (h ^ (h >> 13)) * 1274126177u;
+  h = h ^ (h >> 16);
+  float rand = (float)(h & 0xFFFF) / 65535.0f;
+
+  // Only ~8% of cells have a star
+  if (rand > 0.08f) return 0.0f;
+
+  // Star brightness varies
+  float brightness = 0.4f + 0.6f * ((float)((h >> 8) & 0xFF) / 255.0f);
+  return brightness;
+}
+
+// Compute lensing-based color for escaped rays.
+// bendAngle: angle between initial and final ray direction (radians).
+// finalDir: ray's final direction (used for starfield lookup).
+__device__ float3 lensingColor(float3 bgColor, float3 finalDir,
+                               float bendAngle) {
+  // Star field
+  float star = starField(finalDir);
+
+  // Lensing amplification: rays bent more → brighter (gravitational focusing)
+  // Smooth ramp: subtle glow near the photon sphere silhouette
+  float amplification = 1.0f + 2.0f * bendAngle * bendAngle;
+  amplification = fminf(amplification, 4.0f);
+
+  // Base color: background with lensing tint
+  float3 col = bgColor;
+
+  // Add lensing glow (bluish-white shift for strongly bent rays)
+  float lensGlow = fminf(bendAngle * 0.8f, 0.5f);
+  col.x += lensGlow * 0.3f;
+  col.y += lensGlow * 0.4f;
+  col.z += lensGlow * 0.6f;
+
+  // Add stars (white, amplified by lensing)
+  if (star > 0.0f) {
+    float s = star * amplification;
+    col.x = fminf(col.x + s, 1.0f);
+    col.y = fminf(col.y + s, 1.0f);
+    col.z = fminf(col.z + s * 0.9f, 1.0f);
+  }
+
+  return col;
+}
+
 __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
                                    DeviceCamera camera,
                                    UnifiedTraceParams params) {
@@ -227,8 +286,22 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
     }
     if (diskHit) break;
 
-    // Escape check: distance from origin
-    if (dot3(pos, pos) > escapeR2) break;
+    // Escape check: distance from origin — apply lensing shading
+    if (dot3(pos, pos) > escapeR2) {
+      float3 finalDir = normalize3(vel);
+      float cosAngle = dot3(dir, finalDir);
+      cosAngle = fminf(fmaxf(cosAngle, -1.0f), 1.0f);
+      float bendAngle = acosf(cosAngle);
+
+      float3 lc = lensingColor(bgColor, finalDir, bendAngle);
+      color = {
+        (unsigned char)(fminf(lc.x, 1.0f) * 255.0f),
+        (unsigned char)(fminf(lc.y, 1.0f) * 255.0f),
+        (unsigned char)(fminf(lc.z, 1.0f) * 255.0f),
+        0  // transparent — lets OpenGL grid show through
+      };
+      break;
+    }
   }
 
   framebuffer[(height - 1 - y) * width + x] = color;
