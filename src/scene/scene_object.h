@@ -17,10 +17,21 @@ struct SceneObject {
   float3 emissionColor;
   bool drawGeodesicGrid;       // BH only, CPU-side flag for GL grid overlay
 
+  // Accretion disk (BH only) — flat XZ plane centered on this object
+  bool hasAccretionDisk = false;
+  float diskInnerRadius = 0.0f;
+  float diskOuterRadius = 0.0f;
+  float3 diskInnerColor = {1.0f, 1.0f, 1.0f};
+  float3 diskOuterColor = {1.0f, 0.0f, 0.0f};
+  float diskEmissionStrength = 1.0f;
+
   // Convert to device-side object for the CUDA kernel
   bht::gpu::DeviceSceneObject toDevice() const {
     return {type, position, schwarzschildRadius, visualRadius,
-            color, emissionStrength, emissionColor};
+            color, emissionStrength, emissionColor,
+            hasAccretionDisk ? 1 : 0,
+            diskInnerRadius, diskOuterRadius,
+            diskInnerColor, diskOuterColor, diskEmissionStrength};
   }
 };
 

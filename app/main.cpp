@@ -3,7 +3,6 @@
 #include "gpu/unified_kernel.h"
 #include "math/mat4.h"
 #include "render/scene_renderer.h"
-#include "scene/accretion_disk.h"
 #include "scene/fps_camera.h"
 #include "scene/scene_object.h"
 
@@ -47,6 +46,12 @@ int main() {
   bh.visualRadius = 2.0f;
   bh.color = {0.0f, 0.0f, 0.0f};
   bh.drawGeodesicGrid = true;
+  bh.hasAccretionDisk = true;
+  bh.diskInnerRadius = 6.0f;              // 3 * Rs (ISCO)
+  bh.diskOuterRadius = 24.0f;
+  bh.diskInnerColor = {1.0f, 0.95f, 0.7f};  // hot white-yellow
+  bh.diskOuterColor = {0.9f, 0.15f, 0.02f}; // deep red-orange outer edge
+  bh.diskEmissionStrength = 1.0f;
   objects.push_back(bh);
 
   // Blue-white hot star (behind and to the right of the BH)
@@ -70,15 +75,6 @@ int main() {
   // Build device objects for CUDA kernel
   std::vector<bht::gpu::DeviceSceneObject> devObjects;
   for (auto& obj : objects) devObjects.push_back(obj.toDevice());
-
-  // Accretion disk around the black hole (ISCO = 3*Rs = 6.0)
-  bht::gpu::DeviceAccretionDisk disk{};
-  disk.center = {0.0f, 0.0f, 0.0f};
-  disk.innerRadius = 6.0f;   // 3 * Rs (innermost stable circular orbit)
-  disk.outerRadius = 24.0f;
-  disk.innerColor = {1.0f, 0.95f, 0.7f};  // hot white-yellow
-  disk.outerColor = {0.9f, 0.15f, 0.02f}; // deep red-orange outer edge
-  disk.emissionStrength = 1.0f;
 
   // Trace params: near-black background to make stars/disk pop
   bht::gpu::UnifiedTraceParams params;
@@ -115,7 +111,7 @@ int main() {
     bht::gpu::launchUnifiedKernel(devPtr, WIDTH, HEIGHT, devCam,
                                   devObjects.data(),
                                   static_cast<int>(devObjects.size()),
-                                  &disk, 1, params);
+                                  params);
     interop.unmap();
 
     // Draw background + OpenGL grid first

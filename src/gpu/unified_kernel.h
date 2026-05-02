@@ -16,11 +16,10 @@ struct UnifiedTraceParams {
 
 // Launch the unified ray tracing kernel.
 // Objects must be in host memory — they are copied to constant memory internally.
+// Black holes with hasAccretionDisk=1 will have their disks rendered automatically.
 void launchUnifiedKernel(uchar4* framebuffer, int width, int height,
                          const DeviceCamera& camera,
                          const DeviceSceneObject* objects, int objectCount,
-                         const DeviceAccretionDisk* disks = nullptr,
-                         int diskCount = 0,
                          const UnifiedTraceParams& params = {});
 
 } // namespace bht::gpu

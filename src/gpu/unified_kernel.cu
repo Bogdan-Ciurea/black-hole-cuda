@@ -9,8 +9,6 @@ namespace bht::gpu {
 // Constant memory for scene objects (broadcast to all threads)
 __constant__ DeviceSceneObject c_objects[MAX_SCENE_OBJECTS];
 __constant__ int c_objectCount;
-__constant__ DeviceAccretionDisk c_disks[MAX_ACCRETION_DISKS];
-__constant__ int c_diskCount;
 
 // Generate ray direction for pixel (x, y)
 __device__ float3 unifiedGenerateRay(int x, int y, int width, int height,
@@ -82,17 +80,16 @@ __device__ bool segmentDiskIntersect(float3 p0, float3 p1,
 }
 
 // Compute disk color with radial gradient (inner=hot, outer=cool)
-__device__ float3 diskColor(float3 hitPos, const DeviceAccretionDisk& disk) {
-  float dx = hitPos.x - disk.center.x;
-  float dz = hitPos.z - disk.center.z;
+__device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj) {
+  float dx = hitPos.x - obj.position.x;
+  float dz = hitPos.z - obj.position.z;
   float r = sqrtf(dx * dx + dz * dz);
-  float t = (r - disk.innerRadius) / (disk.outerRadius - disk.innerRadius);
+  float t = (r - obj.diskInnerRadius) / (obj.diskOuterRadius - obj.diskInnerRadius);
   t = fminf(fmaxf(t, 0.0f), 1.0f);
-  // Lerp from inner to outer color
   return {
-    disk.innerColor.x * (1.0f - t) + disk.outerColor.x * t,
-    disk.innerColor.y * (1.0f - t) + disk.outerColor.y * t,
-    disk.innerColor.z * (1.0f - t) + disk.outerColor.z * t
+    obj.diskInnerColor.x * (1.0f - t) + obj.diskOuterColor.x * t,
+    obj.diskInnerColor.y * (1.0f - t) + obj.diskOuterColor.y * t,
+    obj.diskInnerColor.z * (1.0f - t) + obj.diskOuterColor.z * t
   };
 }
 
@@ -265,15 +262,16 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
       break;
     }
 
-    // Check accretion disk intersections
+    // Check accretion disk intersections (disks are properties of BH objects)
     bool diskHit = false;
-    for (int i = 0; i < c_diskCount; i++) {
+    for (int i = 0; i < c_objectCount; i++) {
+      if (!c_objects[i].hasAccretionDisk) continue;
       float tHit;
-      if (segmentDiskIntersect(prevPos, pos, c_disks[i].center,
-                               c_disks[i].innerRadius, c_disks[i].outerRadius,
-                               tHit)) {
+      if (segmentDiskIntersect(prevPos, pos, c_objects[i].position,
+                               c_objects[i].diskInnerRadius,
+                               c_objects[i].diskOuterRadius, tHit)) {
         float3 hitPt = prevPos + tHit * (pos - prevPos);
-        float3 dc = diskColor(hitPt, c_disks[i]);
+        float3 dc = diskColor(hitPt, c_objects[i]);
         color = {
           (unsigned char)(dc.x * 255.0f),
           (unsigned char)(dc.y * 255.0f),
@@ -310,29 +308,17 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
 void launchUnifiedKernel(uchar4* framebuffer, int width, int height,
                          const DeviceCamera& camera,
                          const DeviceSceneObject* objects, int objectCount,
-                         const DeviceAccretionDisk* disks, int diskCount,
                          const UnifiedTraceParams& params) {
   if (objectCount > MAX_SCENE_OBJECTS) {
     std::fprintf(stderr, "Too many scene objects (%d > %d)\n",
                  objectCount, MAX_SCENE_OBJECTS);
     objectCount = MAX_SCENE_OBJECTS;
   }
-  if (diskCount > MAX_ACCRETION_DISKS) {
-    std::fprintf(stderr, "Too many accretion disks (%d > %d)\n",
-                 diskCount, MAX_ACCRETION_DISKS);
-    diskCount = MAX_ACCRETION_DISKS;
-  }
 
   // Copy objects to constant memory
   cudaMemcpyToSymbol(c_objects, objects,
                      objectCount * sizeof(DeviceSceneObject));
   cudaMemcpyToSymbol(c_objectCount, &objectCount, sizeof(int));
-
-  if (diskCount > 0 && disks) {
-    cudaMemcpyToSymbol(c_disks, disks,
-                       diskCount * sizeof(DeviceAccretionDisk));
-  }
-  cudaMemcpyToSymbol(c_diskCount, &diskCount, sizeof(int));
 
   dim3 block(16, 16);
   dim3 grid((width + block.x - 1) / block.x,

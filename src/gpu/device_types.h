@@ -30,18 +30,14 @@ struct DeviceSceneObject {
   float3 color;              // RGB [0,1]
   float emissionStrength;    // 0 = non-emissive
   float3 emissionColor;      // for future use
-};
 
-// Device-side accretion disk (flat XZ plane)
-struct DeviceAccretionDisk {
-  float3 center;
-  float innerRadius;
-  float outerRadius;
-  float3 innerColor;   // hot inner edge
-  float3 outerColor;   // cool outer edge
-  float emissionStrength;
+  // Accretion disk (BH only) — flat XZ plane centered on this object
+  int hasAccretionDisk;      // 0 = no disk, 1 = has disk (int for GPU ABI)
+  float diskInnerRadius;     // inner edge (typically ~3 * Rs, ISCO)
+  float diskOuterRadius;     // outer edge
+  float3 diskInnerColor;     // hot inner color
+  float3 diskOuterColor;     // cool outer color
+  float diskEmissionStrength;
 };
-
-constexpr int MAX_ACCRETION_DISKS = 4;
 
 } // namespace bht::gpu
