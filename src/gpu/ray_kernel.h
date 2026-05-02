@@ -1,17 +1,10 @@
 #pragma once
 
+#include "gpu/device_types.h"
+
 #include <cuda_runtime.h>
 
 namespace bht::gpu {
-
-// Device-side camera for ray generation
-struct DeviceCamera {
-  float3 position;
-  float3 forward;
-  float3 right;
-  float3 up;
-  float fov; // degrees
-};
 
 // Device-side black hole
 struct DeviceBlackHole {
