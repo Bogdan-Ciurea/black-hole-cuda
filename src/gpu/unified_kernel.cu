@@ -79,10 +79,10 @@ __device__ bool segmentDiskIntersect(float3 p0, float3 p1,
   return false;
 }
 
-// Compute disk color with radial gradient + Keplerian rotation pattern.
-// time: simulation time for animation.
+// Compute disk color with radial gradient, Keplerian rotation, and Doppler beaming.
+// camPos: camera position (observer) for Doppler shift calculation.
 __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
-                            float time) {
+                            float time, float3 camPos) {
   float dx = hitPos.x - obj.position.x;
   float dz = hitPos.z - obj.position.z;
   float r = sqrtf(dx * dx + dz * dz);
@@ -102,11 +102,64 @@ __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
   float theta = atan2f(dz, dx);
   float rotatedTheta = theta + time * omega;
 
-  // 2 spiral arms with radial phase offset for natural look
+  // Spiral arm brightness modulation
   float spiralPhase = 2.0f * rotatedTheta - 3.0f * t;
-  float brightness = 0.75f + 0.25f * sinf(spiralPhase);
+  float spiralBright = 0.75f + 0.25f * sinf(spiralPhase);
 
-  return {baseColor.x * brightness, baseColor.y * brightness, baseColor.z * brightness};
+  // Doppler beaming: orbital velocity in the XZ plane (counter-clockwise)
+  float v = omega * r; // tangential speed (units of c when M = Rs/2)
+  float beta = fminf(fmaxf(v, 0.0f), 0.95f); // cap at 0.95c
+  float3 vOrbital = {-sinf(theta) * v, 0.0f, cosf(theta) * v};
+
+  // Direction from hit point toward observer (flat-space approximation)
+  float3 toObs = normalize3(camPos - hitPos);
+  float betaLos = dot3(vOrbital, toObs); // line-of-sight velocity
+  betaLos = fminf(fmaxf(betaLos, -0.95f), 0.95f);
+
+  // Relativistic Doppler factor: D = 1 / (gamma * (1 - beta_los))
+  float gamma = 1.0f / sqrtf(1.0f - beta * beta);
+  float D = 1.0f / (gamma * (1.0f - betaLos));
+  D = fminf(fmaxf(D, 0.25f), 4.0f);
+
+  // Color tint FIRST (before brightness), using lerp to target color
+  // This ensures tint is visible even after brightness scaling
+  float tintStrength = fminf(fabsf(D - 1.0f) * 2.0f, 0.7f);
+  float3 tintedColor = baseColor;
+  if (D > 1.0f) {
+    // Approaching: lerp toward blue-white
+    tintedColor.x = baseColor.x * (1.0f - tintStrength) + 0.7f * tintStrength;
+    tintedColor.y = baseColor.y * (1.0f - tintStrength) + 0.85f * tintStrength;
+    tintedColor.z = baseColor.z * (1.0f - tintStrength) + 1.0f * tintStrength;
+  } else {
+    // Receding: lerp toward deep red-orange
+    tintedColor.x = baseColor.x * (1.0f - tintStrength) + 1.0f * tintStrength;
+    tintedColor.y = baseColor.y * (1.0f - tintStrength) + 0.3f * tintStrength;
+    tintedColor.z = baseColor.z * (1.0f - tintStrength) + 0.1f * tintStrength;
+  }
+
+  // Brightness: D² (not D³ — avoids blowout in LDR pipeline)
+  float beaming = D * D;
+
+  // Apply brightness after tint, then Reinhard tone map per-channel to preserve tint
+  float3 hdr = {
+    tintedColor.x * spiralBright * beaming,
+    tintedColor.y * spiralBright * beaming,
+    tintedColor.z * spiralBright * beaming
+  };
+
+  // Simple Reinhard: color / (1 + color) — preserves channel ratios
+  float3 col = {
+    hdr.x / (1.0f + hdr.x),
+    hdr.y / (1.0f + hdr.y),
+    hdr.z / (1.0f + hdr.z)
+  };
+
+  // Clamp to [0, 1]
+  col.x = fminf(fmaxf(col.x, 0.0f), 1.0f);
+  col.y = fminf(fmaxf(col.y, 0.0f), 1.0f);
+  col.z = fminf(fmaxf(col.z, 0.0f), 1.0f);
+
+  return col;
 }
 
 // Procedural starfield: hash-based pseudo-random stars on the sky sphere.
@@ -287,7 +340,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
                                c_objects[i].diskInnerRadius,
                                c_objects[i].diskOuterRadius, tHit)) {
         float3 hitPt = prevPos + tHit * (pos - prevPos);
-        float3 dc = diskColor(hitPt, c_objects[i], params.time);
+        float3 dc = diskColor(hitPt, c_objects[i], params.time, camera.position);
         color = {
           (unsigned char)(dc.x * 255.0f),
           (unsigned char)(dc.y * 255.0f),
