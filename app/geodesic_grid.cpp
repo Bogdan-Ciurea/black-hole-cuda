@@ -2,6 +2,7 @@
 #include "math/constants.h"
 #include "physics/blackhole.h"
 #include "render/blackhole_renderer.h"
+#include "scene/orbit_camera.h"
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -24,27 +25,15 @@ struct Mat4 {
     return r;
   }
 
-  static Mat4 lookAt(float ex, float ey, float ez, float cx, float cy, float cz) {
-    float fx = cx - ex, fy = cy - ey, fz = cz - ez;
-    float fl = sqrtf(fx * fx + fy * fy + fz * fz);
-    fx /= fl; fy /= fl; fz /= fl;
-
-    float ux = 0.0f, uy = 1.0f, uz = 0.0f;
-    float rx = fy * uz - fz * uy;
-    float ry = fz * ux - fx * uz;
-    float rz = fx * uy - fy * ux;
-    float rl = sqrtf(rx * rx + ry * ry + rz * rz);
-    rx /= rl; ry /= rl; rz /= rl;
-
-    float uux = ry * fz - rz * fy;
-    float uuy = rz * fx - rx * fz;
-    float uuz = rx * fy - ry * fx;
-
+  static Mat4 lookAt(float3 pos, float3 fwd, float3 right, float3 up) {
     Mat4 r{};
-    r.m[0] = rx;  r.m[4] = ry;  r.m[8]  = rz;  r.m[12] = -(rx * ex + ry * ey + rz * ez);
-    r.m[1] = uux; r.m[5] = uuy; r.m[9]  = uuz; r.m[13] = -(uux * ex + uuy * ey + uuz * ez);
-    r.m[2] = -fx; r.m[6] = -fy; r.m[10] = -fz; r.m[14] = (fx * ex + fy * ey + fz * ez);
-    r.m[3] = 0;   r.m[7] = 0;   r.m[11] = 0;   r.m[15] = 1.0f;
+    r.m[0] = right.x; r.m[4] = right.y; r.m[8]  = right.z;
+    r.m[12] = -(right.x * pos.x + right.y * pos.y + right.z * pos.z);
+    r.m[1] = up.x;    r.m[5] = up.y;    r.m[9]  = up.z;
+    r.m[13] = -(up.x * pos.x + up.y * pos.y + up.z * pos.z);
+    r.m[2] = -fwd.x;  r.m[6] = -fwd.y;  r.m[10] = -fwd.z;
+    r.m[14] = (fwd.x * pos.x + fwd.y * pos.y + fwd.z * pos.z);
+    r.m[3] = 0;       r.m[7] = 0;       r.m[11] = 0;       r.m[15] = 1.0f;
     return r;
   }
 
@@ -68,6 +57,8 @@ int main() {
     return 1;
   }
 
+  glfwSetInputMode(window.handle(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
   // Create black hole with Rs = 2.0
   double Rs = 2.0;
   double mass = Rs * bht::math::C_SQUARED / (2.0 * bht::math::G);
@@ -83,30 +74,24 @@ int main() {
   glEnable(GL_DEPTH_TEST);
   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
-  float angle = 0.0f;
-  float camHeight = 25.0f;
-  float camDist = 50.0f;
+  float3 camPos = {0.0f, 25.0f, 50.0f};
+  float3 target = {0.0f, 0.0f, 0.0f};
+  bht::scene::OrbitCamera cam(camPos, target);
 
   std::printf("Geodesic grid: 80x80, Rs=%.1f\n", Rs);
-  std::printf("Controls: A/D=orbit, Q/E=height, W/S=zoom, ESC=exit\n");
+  std::printf("Controls: Mouse=orbit, W/S=zoom, Q/E=height, ESC=exit\n");
 
   while (!window.shouldClose()) {
     window.pollEvents();
-    GLFWwindow* w = window.handle();
+    cam.processInput(window.handle(), WIDTH, HEIGHT);
 
-    if (glfwGetKey(w, GLFW_KEY_A) == GLFW_PRESS) angle -= 0.02f;
-    if (glfwGetKey(w, GLFW_KEY_D) == GLFW_PRESS) angle += 0.02f;
-    if (glfwGetKey(w, GLFW_KEY_Q) == GLFW_PRESS) camHeight += 0.3f;
-    if (glfwGetKey(w, GLFW_KEY_E) == GLFW_PRESS) camHeight -= 0.3f;
-    if (glfwGetKey(w, GLFW_KEY_W) == GLFW_PRESS) camDist -= 0.3f;
-    if (glfwGetKey(w, GLFW_KEY_S) == GLFW_PRESS) camDist += 0.3f;
-    if (camDist < 5.0f) camDist = 5.0f;
+    float3 pos = cam.getPosition();
+    float3 fwd = cam.getForward();
+    float3 right = cam.getRight();
+    float3 up = cam.getUp();
 
-    float ex = cosf(angle) * camDist;
-    float ez = sinf(angle) * camDist;
-
-    Mat4 proj = Mat4::perspective(60.0f, (float)WIDTH / HEIGHT, 0.1f, 500.0f);
-    Mat4 view = Mat4::lookAt(ex, camHeight, ez, 0.0f, 0.0f, 0.0f);
+    Mat4 proj = Mat4::perspective(cam.fov, (float)WIDTH / HEIGHT, 0.1f, 500.0f);
+    Mat4 view = Mat4::lookAt(pos, fwd, right, up);
     Mat4 mvp = proj * view;
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
