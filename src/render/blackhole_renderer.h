@@ -16,10 +16,14 @@ public:
   // Initialize GPU resources. Must be called after GL context is ready.
   bool init(int gridResolution = 80, float gridExtent = 30.0f);
 
+  // Render the black hole: event horizon sphere + optional spacetime grid.
+  // Checks bh.drawGeodesicGrid to decide whether to draw the grid.
+  void render(const float* mvp) const;
+
   // Render the spacetime curvature grid.
   void renderSpacetimeGrid(const float* mvp) const;
 
-  // Render the black hole as a red sphere at the event horizon.
+  // Render the black hole as a sphere at the event horizon.
   void renderEventHorizon(const float* mvp) const;
 
 private:

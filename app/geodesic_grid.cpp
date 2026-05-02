@@ -63,6 +63,7 @@ int main() {
   double Rs = 2.0;
   double mass = Rs * bht::math::C_SQUARED / (2.0 * bht::math::G);
   bht::physics::BlackHole bh(mass);
+  bh.drawGeodesicGrid = true;
 
   // Create renderer linked to the black hole
   bht::render::BlackHoleRenderer bhRenderer(bh);
@@ -95,8 +96,7 @@ int main() {
     Mat4 mvp = proj * view;
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    bhRenderer.renderSpacetimeGrid(mvp.m);
-    bhRenderer.renderEventHorizon(mvp.m);
+    bhRenderer.render(mvp.m);
     window.swapBuffers();
   }
 

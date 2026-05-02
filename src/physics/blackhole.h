@@ -10,6 +10,7 @@ struct BlackHole {
   glm::dvec3 position{0.0, 0.0, 0.0};
   double mass;
   double schwarzschildRadius;
+  bool drawGeodesicGrid = false;
 
   explicit BlackHole(double mass, glm::dvec3 pos = {0.0, 0.0, 0.0})
       : position(pos), mass(mass), schwarzschildRadius(computeSchwarzschildRadius(mass)) {}

@@ -213,6 +213,12 @@ bool BlackHoleRenderer::initSphere() {
 
 // --- Render ---
 
+void BlackHoleRenderer::render(const float* mvp) const {
+  renderEventHorizon(mvp);
+  if (bh_.drawGeodesicGrid)
+    renderSpacetimeGrid(mvp);
+}
+
 void BlackHoleRenderer::renderSpacetimeGrid(const float* mvp) const {
   glUseProgram(gridShader_);
   glUniformMatrix4fv(gridMvpLoc_, 1, GL_FALSE, mvp);
