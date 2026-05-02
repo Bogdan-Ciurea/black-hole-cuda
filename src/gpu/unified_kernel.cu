@@ -208,26 +208,12 @@ __device__ float3 diskColor(float3 hitPos, const DeviceSceneObject& obj,
   float gG = 0.3f + 0.7f * gFactor; // green moderately affected
   float gB = 0.1f + 0.9f * gFactor; // blue most affected
 
-  // Apply brightness, beaming, and gravitational redshift
-  float3 hdr = {
+  // Apply brightness, beaming, and gravitational redshift (HDR — no clamping)
+  return {
     tintedColor.x * spiralBright * beaming * gR,
     tintedColor.y * spiralBright * beaming * gG,
     tintedColor.z * spiralBright * beaming * gB
   };
-
-  // Simple Reinhard: color / (1 + color) — preserves channel ratios
-  float3 col = {
-    hdr.x / (1.0f + hdr.x),
-    hdr.y / (1.0f + hdr.y),
-    hdr.z / (1.0f + hdr.z)
-  };
-
-  // Clamp to [0, 1]
-  col.x = fminf(fmaxf(col.x, 0.0f), 1.0f);
-  col.y = fminf(fmaxf(col.y, 0.0f), 1.0f);
-  col.z = fminf(fmaxf(col.z, 0.0f), 1.0f);
-
-  return col;
 }
 
 // Procedural starfield: hash-based pseudo-random stars on the sky sphere.
@@ -349,7 +335,7 @@ __device__ float3 lensingColor(float3 bgColor, float3 finalDir,
   return col;
 }
 
-__global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
+__global__ void unifiedTraceKernel(float4* hdrBuffer, int width, int height,
                                    DeviceCamera camera,
                                    UnifiedTraceParams params) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -364,12 +350,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
   float escapeR2 = params.escapeRadius * params.escapeRadius;
 
   float3 bgColor = params.backgroundColor;
-  uchar4 color = {
-    (unsigned char)(bgColor.x * 255.0f),
-    (unsigned char)(bgColor.y * 255.0f),
-    (unsigned char)(bgColor.z * 255.0f),
-    0  // transparent background — lets OpenGL grid show through
-  };
+  float4 hdrColor = {bgColor.x, bgColor.y, bgColor.z, 0.0f}; // alpha 0 = transparent
 
   // Track closest approach to any BH's photon sphere (1.5 * Rs)
   float photonRingProximity = 1e10f; // min (r - 1.5*Rs) / Rs across all BHs
@@ -478,12 +459,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
 
     if (hitIdx >= 0) {
       float3 c = c_objects[hitIdx].color;
-      color = {
-        (unsigned char)(c.x * 255.0f),
-        (unsigned char)(c.y * 255.0f),
-        (unsigned char)(c.z * 255.0f),
-        255
-      };
+      hdrColor = {c.x, c.y, c.z, 1.0f};
       break;
     }
 
@@ -501,12 +477,7 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
         float3 hitPt = prevPos + tHit * (pos - prevPos);
         float3 dc = diskColor(hitPt, c_objects[i], params.time, camera.position,
                               params.turbulenceEnabled);
-        color = {
-          (unsigned char)(dc.x * 255.0f),
-          (unsigned char)(dc.y * 255.0f),
-          (unsigned char)(dc.z * 255.0f),
-          255
-        };
+        hdrColor = {dc.x, dc.y, dc.z, 1.0f};
         diskHit = true;
         break;
       }
@@ -527,40 +498,34 @@ __global__ void unifiedTraceKernel(uchar4* framebuffer, int width, int height,
       // proximity ~0 means ray skimmed the photon sphere (brightest ring)
       if (photonRingProximity < 1.0f) {
         float ringGlow = expf(-photonRingProximity * photonRingProximity * 4.0f);
-        // Blue-white ring, intensity up to 0.8
         float ringIntensity = ringGlow * 0.8f;
-        lc.x = fminf(lc.x + ringIntensity * 0.85f, 1.0f);
-        lc.y = fminf(lc.y + ringIntensity * 0.9f, 1.0f);
-        lc.z = fminf(lc.z + ringIntensity * 1.0f, 1.0f);
+        lc.x += ringIntensity * 0.85f;
+        lc.y += ringIntensity * 0.9f;
+        lc.z += ringIntensity * 1.0f;
       }
 
-      color = {
-        (unsigned char)(fminf(lc.x, 1.0f) * 255.0f),
-        (unsigned char)(fminf(lc.y, 1.0f) * 255.0f),
-        (unsigned char)(fminf(lc.z, 1.0f) * 255.0f),
-        (unsigned char)(params.skyboxTex != 0 ? 255 : 0)  // opaque if skybox, else transparent for grid
-      };
+      float alpha = (params.skyboxTex != 0) ? 1.0f : 0.0f;
+      hdrColor = {lc.x, lc.y, lc.z, alpha};
       break;
     }
   }
 
   // Add accumulated jet glow (additive, semi-transparent)
   if (jetAccum.x > 0.0f || jetAccum.y > 0.0f || jetAccum.z > 0.0f) {
-    float r = (float)color.x / 255.0f + jetAccum.x;
-    float g = (float)color.y / 255.0f + jetAccum.y;
-    float b = (float)color.z / 255.0f + jetAccum.z;
-    color.x = (unsigned char)(fminf(r, 1.0f) * 255.0f);
-    color.y = (unsigned char)(fminf(g, 1.0f) * 255.0f);
-    color.z = (unsigned char)(fminf(b, 1.0f) * 255.0f);
-    // Make jet pixels visible (opaque) even over transparent background
-    if (color.w == 0 && (jetAccum.x + jetAccum.y + jetAccum.z) > 0.02f)
-      color.w = (unsigned char)(fminf((jetAccum.x + jetAccum.y + jetAccum.z) * 10.0f, 1.0f) * 255.0f);
+    hdrColor.x += jetAccum.x;
+    hdrColor.y += jetAccum.y;
+    hdrColor.z += jetAccum.z;
+    if (hdrColor.w < 0.01f) {
+      float jetTotal = jetAccum.x + jetAccum.y + jetAccum.z;
+      if (jetTotal > 0.02f)
+        hdrColor.w = fminf(jetTotal * 10.0f, 1.0f);
+    }
   }
 
-  framebuffer[(height - 1 - y) * width + x] = color;
+  hdrBuffer[(height - 1 - y) * width + x] = hdrColor;
 }
 
-void launchUnifiedKernel(uchar4* framebuffer, int width, int height,
+void launchUnifiedKernel(float4* hdrBuffer, int width, int height,
                          const DeviceCamera& camera,
                          const DeviceSceneObject* objects, int objectCount,
                          const UnifiedTraceParams& params) {
@@ -579,8 +544,58 @@ void launchUnifiedKernel(uchar4* framebuffer, int width, int height,
   dim3 grid((width + block.x - 1) / block.x,
             (height + block.y - 1) / block.y);
 
-  unifiedTraceKernel<<<grid, block>>>(framebuffer, width, height,
+  unifiedTraceKernel<<<grid, block>>>(hdrBuffer, width, height,
                                       camera, params);
+  cudaDeviceSynchronize();
+}
+
+// ACES filmic tone mapping: cinematic S-curve with warm highlights
+__device__ float3 acesFilmic(float3 x) {
+  float3 a = {x.x * (2.51f * x.x + 0.03f),
+              x.y * (2.51f * x.y + 0.03f),
+              x.z * (2.51f * x.z + 0.03f)};
+  float3 b = {x.x * (2.43f * x.x + 0.59f) + 0.14f,
+              x.y * (2.43f * x.y + 0.59f) + 0.14f,
+              x.z * (2.43f * x.z + 0.59f) + 0.14f};
+  return {fminf(fmaxf(a.x / b.x, 0.0f), 1.0f),
+          fminf(fmaxf(a.y / b.y, 0.0f), 1.0f),
+          fminf(fmaxf(a.z / b.z, 0.0f), 1.0f)};
+}
+
+__global__ void toneMapKernel(const float4* hdr, uchar4* ldr,
+                              int width, int height, float exposure) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  int idx = y * width + x;
+  float4 pixel = hdr[idx];
+
+  // Apply exposure
+  float3 col = {pixel.x * exposure, pixel.y * exposure, pixel.z * exposure};
+
+  // ACES filmic tone map
+  col = acesFilmic(col);
+
+  // Gamma correction (linear → sRGB)
+  col.x = powf(col.x, 1.0f / 2.2f);
+  col.y = powf(col.y, 1.0f / 2.2f);
+  col.z = powf(col.z, 1.0f / 2.2f);
+
+  ldr[idx] = {
+    (unsigned char)(col.x * 255.0f),
+    (unsigned char)(col.y * 255.0f),
+    (unsigned char)(col.z * 255.0f),
+    (unsigned char)(fminf(fmaxf(pixel.w, 0.0f), 1.0f) * 255.0f) // alpha passthrough
+  };
+}
+
+void launchToneMapKernel(const float4* hdrBuffer, uchar4* ldrBuffer,
+                         int width, int height, float exposure) {
+  dim3 block(16, 16);
+  dim3 grid((width + block.x - 1) / block.x,
+            (height + block.y - 1) / block.y);
+  toneMapKernel<<<grid, block>>>(hdrBuffer, ldrBuffer, width, height, exposure);
   cudaDeviceSynchronize();
 }
 

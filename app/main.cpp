@@ -75,6 +75,12 @@ void processSceneInput(GLFWwindow* win,
     std::printf("Jets: %s\n", params.jetsEnabled ? "ON" : "OFF");
   }
   state.prevJ = curJ;
+
+  // Exposure control with +/- (continuous while held)
+  if (glfwGetKey(win, GLFW_KEY_EQUAL) == GLFW_PRESS)
+    params.exposure = std::fmin(params.exposure * 1.02f, 10.0f);
+  if (glfwGetKey(win, GLFW_KEY_MINUS) == GLFW_PRESS)
+    params.exposure = std::fmax(params.exposure * 0.98f, 0.1f);
 }
 
 int main() {
@@ -170,6 +176,10 @@ int main() {
   }
   bht::gpu::BloomParams bloomParams;
 
+  // HDR buffer for tone mapping pipeline
+  float4* hdrBuffer = nullptr;
+  cudaMalloc(&hdrBuffer, WIDTH * HEIGHT * sizeof(float4));
+
   // Camera — slightly above disk plane for a cinematic angle
   bht::scene::FPSCamera cam;
   cam.position = {0.0f, 8.0f, -30.0f};
@@ -179,6 +189,7 @@ int main() {
 
   std::printf("Controls: WASD=move, QE=up/down, Mouse=look, ESC=exit\n");
   std::printf("          G=grid, H=disk, B=bloom, T=turbulence, J=jets\n");
+  std::printf("          +/-=exposure\n");
 
   SceneInputState inputState;
 
@@ -190,12 +201,13 @@ int main() {
     auto devCam = cam.toDeviceCamera();
     params.time = static_cast<float>(std::fmod(glfwGetTime(), 1000.0));
 
-    // CUDA ray trace (writes to PBO texture)
+    // CUDA ray trace → HDR buffer → tone map → LDR PBO
     uchar4* devPtr = interop.map();
-    bht::gpu::launchUnifiedKernel(devPtr, WIDTH, HEIGHT, devCam,
+    bht::gpu::launchUnifiedKernel(hdrBuffer, WIDTH, HEIGHT, devCam,
                                   devObjects.data(),
                                   static_cast<int>(devObjects.size()),
                                   params);
+    bht::gpu::launchToneMapKernel(hdrBuffer, devPtr, WIDTH, HEIGHT, params.exposure);
     bloom.apply(devPtr, bloomParams);
     interop.unmap();
 
@@ -230,5 +242,6 @@ int main() {
     window.swapBuffers();
   }
 
+  cudaFree(hdrBuffer);
   return 0;
 }
